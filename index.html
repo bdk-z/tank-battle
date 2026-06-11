@@ -368,10 +368,10 @@ class Tank {
     this.size = 16;
     this.bulletSpeed = isPlayer ? 7 : 4;
     this.reloadTime = isPlayer ? 20 : 40 + Math.random() * 40;
-    this.reload = isPlayer ? 0 : 20;
+    this.reload = isPlayer ? 0 : 60 + Math.random() * 80;  // 敌人出生冷却长，不会立刻开枪
     this.alive = true;
-    this.shield = isPlayer ? 90 : 0;
-    this.shieldActive = false;
+    this.shield = isPlayer ? 180 : 0;
+    this.shieldActive = isPlayer;  // 玩家开局有无敌护盾
     this.multiShot = false;
     this.speedBoost = 0;
     this.flashTimer = 0;
@@ -673,7 +673,7 @@ function updateEnemyAI(enemy) {
   // 智能追击: 在玩家同列/同行时优先接近 & 射击
   const sameCol = Math.abs(dx) < 20 && Math.abs(dy) > 20;
   const sameRow = Math.abs(dy) < 20 && Math.abs(dx) > 20;
-  const closeRange = dist < 250;
+  const closeRange = dist < (100 + level * 30);  // 随等级增大追击范围
   const shootReady = enemy.reload <= 0;
 
   let aimDir = enemy.aiDir;
@@ -686,7 +686,7 @@ function updateEnemyAI(enemy) {
       aimDir = dy > 0 ? 2 : 0;
     }
     // 面对面时高概率开火
-    if (shootReady && (sameCol || sameRow || dist < 150)) {
+    if (shootReady && (sameCol || sameRow || dist < (80 + level * 20))) {
       if (Math.random() < 0.6) {
         enemy.dir = aimDir;
         const newBullets = enemy.shoot();
@@ -697,7 +697,7 @@ function updateEnemyAI(enemy) {
       }
     }
     // 距离很近时瞄准玩家方向移动
-    if (dist < 200 && Math.random() < 0.7) {
+    if (dist < (60 + level * 40) && Math.random() < 0.5 + level * 0.1) {
       enemy.aiDir = aimDir;
       enemy.aiTimer = 5;
     }
@@ -743,7 +743,7 @@ function updateEnemyAI(enemy) {
 }
 
 // ── 查找安全生成位置 ──
-function findEmptySpawn(preferRow, preferCol) {
+function findEmptySpawn(preferRow, preferCol, minDistFromPlayer = 0) {
   // 检查该格是否安全(本身为空，且至少有一个相邻方向能走)
   function isSafePos(r, c) {
     if (tileAt(c, r) !== TILE.EMPTY) return false;
@@ -751,8 +751,15 @@ function findEmptySpawn(preferRow, preferCol) {
     return tileAt(c, r - 1) === TILE.EMPTY || tileAt(c, r + 1) === TILE.EMPTY ||
            tileAt(c - 1, r) === TILE.EMPTY || tileAt(c + 1, r) === TILE.EMPTY;
   }
+  // 不能离玩家太近 (minDistFromPlayer 以 tile 为单位)
+  function tooClose(r, c) {
+    if (minDistFromPlayer <= 0 || !player || !player.alive) return false;
+    const pr = pxToRow(player.y);
+    const pc = pxToCol(player.x);
+    return Math.abs(r - pr) + Math.abs(c - pc) < minDistFromPlayer;
+  }
   // 从首选位置螺旋向外搜索
-  if (preferRow != null && preferCol != null && isSafePos(preferRow, preferCol)) {
+  if (preferRow != null && preferCol != null && isSafePos(preferRow, preferCol) && !tooClose(preferRow, preferCol)) {
     return { row: preferRow, col: preferCol };
   }
   for (let radius = 1; radius < Math.max(COLS, ROWS); radius++) {
@@ -761,7 +768,7 @@ function findEmptySpawn(preferRow, preferCol) {
         if (Math.abs(dr) !== radius && Math.abs(dc) !== radius) continue;
         const r = (preferRow != null ? preferRow : ROWS / 2) + dr;
         const c = (preferCol != null ? preferCol : COLS / 2) + dc;
-        if (r >= 1 && r < ROWS - 1 && c >= 1 && c < COLS - 1 && isSafePos(r, c)) {
+        if (r >= 1 && r < ROWS - 1 && c >= 1 && c < COLS - 1 && isSafePos(r, c) && !tooClose(r, c)) {
           return { row: r, col: c };
         }
       }
@@ -770,7 +777,7 @@ function findEmptySpawn(preferRow, preferCol) {
   // 最终兜底: 暴力扫描
   for (let r = 1; r < ROWS - 1; r++) {
     for (let c = 1; c < COLS - 1; c++) {
-      if (isSafePos(r, c)) return { row: r, col: c };
+      if (isSafePos(r, c) && !tooClose(r, c)) return { row: r, col: c };
     }
   }
   return { row: Math.floor(ROWS / 2), col: Math.floor(COLS / 2) };
@@ -788,7 +795,7 @@ function spawnEnemy() {
     [spawnRows[2], spawnCols[0]], [spawnRows[2], spawnCols[1]],
   ];
   const tr = tries[Math.floor(Math.random() * tries.length)];
-  const pos = findEmptySpawn(tr[0], tr[1]);
+  const pos = findEmptySpawn(tr[0], tr[1], 6);  // 至少距离玩家6格(曼哈顿距离)
   const x = pos.col * TILE_SIZE + TILE_SIZE / 2;
   const y = pos.row * TILE_SIZE + TILE_SIZE / 2;
   const colors = ['#e53935', '#ff7043', '#ab47bc', '#42a5f5', '#ef5350', '#f44336', '#ff5722'];
@@ -829,7 +836,7 @@ function loadLevel(lvl) {
   // 本关需要消灭的敌人数量
   const totalEnemies = 4 + lvl * 2;
   for (let i = 0; i < totalEnemies; i++) spawnQueue.push(i);
-  spawnTimer = 80;  // 延迟首波敌人，给玩家准备时间
+  spawnTimer = 150;  // 延迟首波敌人~2.5秒，给玩家准备时间
 }
 
 // ── UI更新 ──
