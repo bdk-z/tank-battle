@@ -115,9 +115,11 @@ canvas {
   <canvas id="gameCanvas"></canvas>
   <div id="ui-overlay">
     <div class="ui-panel">💀 <span id="score">0</span></div>
+    <div class="ui-panel">🎯 <span id="remaining">0</span></div>
     <div class="ui-panel">❤️ <span id="lives">3</span></div>
     <div class="ui-panel">⚡ <span id="level-display">1</span></div>
   </div>
+  <div id="powerup-indicator" style="position:absolute; top:42px; left:15px; display:flex; gap:6px; pointer-events:none;"></div>
   <div id="start-screen">
     <h1>坦 克 大 战</h1>
     <div class="subtitle">T A N K · B A T T L E</div>
@@ -147,7 +149,9 @@ const ctx = canvas.getContext('2d');
 // DOM elements
 const scoreEl = document.getElementById('score');
 const livesEl = document.getElementById('lives');
+const remainingEl = document.getElementById('remaining');
 const levelDisplayEl = document.getElementById('level-display');
+const powerupIndicator = document.getElementById('powerup-indicator');
 const startScreen = document.getElementById('start-screen');
 const gameOverScreen = document.getElementById('game-over-screen');
 const levelScreen = document.getElementById('level-screen');
@@ -181,6 +185,7 @@ let levelTransitionTimer = 0;
 let shakeAmount = 0;
 let shakeDuration = 0;
 let powerUps = [];
+let popups = [];       // 击杀得分飘字
 let keys = {};
 let frameCount = 0;
 
@@ -313,6 +318,10 @@ function centerCol(x) { return Math.floor((x + TILE_SIZE / 2) / TILE_SIZE); }
 function centerRow(y) { return Math.floor((y + TILE_SIZE / 2) / TILE_SIZE); }
 
 // ── 粒子系统 ──
+function spawnPopup(x, y, text, color = '#ffeb3b') {
+  popups.push({ x, y, text, color, life: 45, maxLife: 45 });
+}
+
 function spawnParticles(x, y, color, count = 12) {
   for (let i = 0; i < count; i++) {
     const angle = Math.random() * Math.PI * 2;
@@ -646,49 +655,64 @@ function playerShoot() {
 function playerMove() {
   if (!player.alive) return;
   const spd = player.speed + (player.speedBoost > 0 ? 1.5 : 0);
-  let moved = false;
-  if (keys['w'] || keys['arrowup'])    moved = player.move(0, -spd, 0);
-  else if (keys['s'] || keys['arrowdown'])  moved = player.move(0, spd, 2);
-  else if (keys['a'] || keys['arrowleft'])  moved = player.move(-spd, 0, 3);
-  else if (keys['d'] || keys['arrowright']) moved = player.move(spd, 0, 1);
+  // 对角线移动: 独立处理每个方向
+  if (keys['w'] || keys['arrowup']) player.move(0, -spd, 0);
+  if (keys['s'] || keys['arrowdown']) player.move(0, spd, 2);
+  if (keys['a'] || keys['arrowleft']) player.move(-spd, 0, 3);
+  if (keys['d'] || keys['arrowright']) player.move(spd, 0, 1);
 }
 
 // ── 敌人AI ──
 function updateEnemyAI(enemy) {
   if (!enemy.alive) return;
 
-  // 随机改变方向
-  if (Math.random() < 0.015) {
-    enemy.aiDir = Math.floor(Math.random() * 4);
-    enemy.aiTimer = 30 + Math.random() * 60;
-  }
-
-  // 检测玩家方向，有机会时射击
   const dx = player.x - enemy.x;
   const dy = player.y - enemy.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
 
+  // 智能追击: 在玩家同列/同行时优先接近 & 射击
+  const sameCol = Math.abs(dx) < 20 && Math.abs(dy) > 20;
+  const sameRow = Math.abs(dy) < 20 && Math.abs(dx) > 20;
+  const closeRange = dist < 250;
+  const shootReady = enemy.reload <= 0;
+
   let aimDir = enemy.aiDir;
-  if (dist < 300 && Math.random() < 0.03) {
+
+  if (closeRange) {
+    // 追击模式: 朝向玩家方向
     if (Math.abs(dx) > Math.abs(dy)) {
       aimDir = dx > 0 ? 1 : 3;
     } else {
       aimDir = dy > 0 ? 2 : 0;
     }
-    // 射击
-    if (Math.random() < 0.4) {
-      const newBullets = enemy.shoot();
-      if (newBullets) {
-        for (const b of newBullets) bullets.push(b);
-        playSound(400, 0.06, 'square', 0.03);
+    // 面对面时高概率开火
+    if (shootReady && (sameCol || sameRow || dist < 150)) {
+      if (Math.random() < 0.6) {
+        enemy.dir = aimDir;
+        const newBullets = enemy.shoot();
+        if (newBullets) {
+          for (const b of newBullets) bullets.push(b);
+          playSound(400, 0.06, 'square', 0.03);
+        }
       }
     }
+    // 距离很近时瞄准玩家方向移动
+    if (dist < 200 && Math.random() < 0.7) {
+      enemy.aiDir = aimDir;
+      enemy.aiTimer = 5;
+    }
+  }
+
+  // 随机改变方向 (概率随距离增大)
+  if (Math.random() < 0.01 + dist * 0.00003) {
+    enemy.aiDir = Math.floor(Math.random() * 4);
+    enemy.aiTimer = 20 + Math.random() * 40;
   }
 
   // 移动
   if (enemy.aiTimer <= 0) {
     enemy.aiDir = Math.floor(Math.random() * 4);
-    enemy.aiTimer = 30 + Math.random() * 60;
+    enemy.aiTimer = 25 + Math.random() * 50;
   }
   enemy.aiTimer--;
 
@@ -696,7 +720,7 @@ function updateEnemyAI(enemy) {
   const [ddx, ddy] = dirs[aimDir];
   const spd = enemy.speed;
   if (!enemy.move(ddx * spd, ddy * spd, aimDir)) {
-    // 被挡住: 尝试所有方向，找到能走的路
+    // 被挡住: 尝试所有方向
     const shuffled = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
     let found = false;
     for (const d of shuffled) {
@@ -708,7 +732,6 @@ function updateEnemyAI(enemy) {
         break;
       }
     }
-    // 实在走不动就调头
     if (!found) {
       const back = (aimDir + 2) % 4;
       const [ddx3, ddy3] = dirs[back];
@@ -801,11 +824,12 @@ function loadLevel(lvl) {
   bullets = [];
   particles = [];
   powerUps = [];
+  popups = [];
   spawnQueue = [];
   // 本关需要消灭的敌人数量
   const totalEnemies = 4 + lvl * 2;
   for (let i = 0; i < totalEnemies; i++) spawnQueue.push(i);
-  spawnTimer = 0;
+  spawnTimer = 80;  // 延迟首波敌人，给玩家准备时间
 }
 
 // ── UI更新 ──
@@ -813,6 +837,8 @@ function updateUI() {
   scoreEl.textContent = score;
   livesEl.textContent = lives;
   levelDisplayEl.textContent = level;
+  // 剩余敌人 = 待生成 + 存活
+  remainingEl.textContent = spawnQueue.length + enemies.filter(e => e.alive).length;
 }
 
 // ── 游戏重置 ──
@@ -837,10 +863,9 @@ function gameLoop() {
 function update() {
   // 玩家
   playerMove();
+  // 自动连发: 按住空格/J即可持续射击 (reloadTimer控制射速)
   if (keys[' '] || keys['j']) {
     playerShoot();
-    keys[' '] = false;
-    keys['j'] = false;
   }
   player.update();
 
@@ -889,7 +914,9 @@ function update() {
           } else {
             spawnParticles(enemy.x, enemy.y, enemy.color, 25);
             playSound(150, 0.2, 'sawtooth', 0.08);
-            score += 100 * level;
+            const killScore = 100 * level;
+            score += killScore;
+            spawnPopup(enemy.x, enemy.y - 10, `+${killScore}`, '#ffeb3b');
             shakeAmount = 4;
             shakeDuration = 8;
             // 概率掉落道具
@@ -933,6 +960,11 @@ function update() {
     p.life--;
   }
   for (const p of powerUps) p.life--;
+  for (const p of popups) {
+    p.y -= 0.8;  // 向上飘
+    p.life--;
+  }
+  popups = popups.filter(p => p.life > 0);
 
   // 屏幕震动
   if (shakeDuration > 0) shakeDuration--;
@@ -962,6 +994,18 @@ function playerDie() {
     player.shield = 120;
     player.shieldActive = true;
     player.reload = 0;
+    // 清除重生点附近敌人，防止秒死
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const edx = player.x - e.x;
+      const edy = player.y - e.y;
+      if (Math.abs(edx) < TILE_SIZE * 3 && Math.abs(edy) < TILE_SIZE * 3) {
+        e.alive = false;
+        spawnParticles(e.x, e.y, e.color, 20);
+      }
+    }
+    enemies = enemies.filter(e => e.alive);
+    updateUI();
   }, 1000);
 }
 
@@ -1059,6 +1103,15 @@ function render() {
     }
   }
 
+  // 道具状态指示器
+  let puHTML = '';
+  if (player && player.alive) {
+    if (player.speedBoost > 0) puHTML += `<span style="background:rgba(0,255,255,0.25);color:#0ff;padding:1px 6px;border-radius:3px;font-size:11px;">⚡${Math.ceil(player.speedBoost/60)}s</span>`;
+    if (player.shieldActive) puHTML += `<span style="background:rgba(255,200,0,0.25);color:#fc0;padding:1px 6px;border-radius:3px;font-size:11px;">🛡${Math.ceil(player.shield/60)}s</span>`;
+    if (player.multiShot) puHTML += `<span style="background:rgba(255,0,255,0.25);color:#f0f;padding:1px 6px;border-radius:3px;font-size:11px;">💥</span>`;
+  }
+  powerupIndicator.innerHTML = puHTML;
+
   // 道具
   for (const p of powerUps) {
     const alpha = p.life < 120 ? (Math.sin(p.life * 0.3) > 0 ? 1 : 0.3) : 1;
@@ -1108,6 +1161,22 @@ function render() {
     ctx.fill();
   }
   ctx.globalAlpha = 1;
+
+  // 得分飘字
+  for (const p of popups) {
+    const alpha = p.life / p.maxLife;
+    const scale = 1 + (1 - alpha) * 0.5;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.font = `bold ${Math.floor(16 * scale)}px "Courier New", monospace`;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.fillText(p.text, p.x, p.y);
+    ctx.shadowBlur = 0;
+    ctx.restore();
+  }
 
   ctx.restore();
 
