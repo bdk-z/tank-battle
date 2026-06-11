@@ -696,23 +696,78 @@ function updateEnemyAI(enemy) {
   const [ddx, ddy] = dirs[aimDir];
   const spd = enemy.speed;
   if (!enemy.move(ddx * spd, ddy * spd, aimDir)) {
-    // 被挡住就换方向
-    enemy.aiDir = Math.floor(Math.random() * 4);
-    enemy.aiTimer = 10 + Math.random() * 30;
-    const [ddx2, ddy2] = dirs[enemy.aiDir];
-    enemy.move(ddx2 * spd, ddy2 * spd, enemy.aiDir);
+    // 被挡住: 尝试所有方向，找到能走的路
+    const shuffled = [0, 1, 2, 3].sort(() => Math.random() - 0.5);
+    let found = false;
+    for (const d of shuffled) {
+      const [ddx2, ddy2] = dirs[d];
+      if (enemy.move(ddx2 * spd, ddy2 * spd, d)) {
+        enemy.aiDir = d;
+        enemy.aiTimer = 15 + Math.random() * 25;
+        found = true;
+        break;
+      }
+    }
+    // 实在走不动就调头
+    if (!found) {
+      const back = (aimDir + 2) % 4;
+      const [ddx3, ddy3] = dirs[back];
+      enemy.move(ddx3 * spd, ddy3 * spd, back);
+      enemy.aiDir = back;
+      enemy.aiTimer = 10;
+    }
   }
+}
+
+// ── 查找安全生成位置 ──
+function findEmptySpawn(preferRow, preferCol) {
+  // 检查该格是否安全(本身为空，且至少有一个相邻方向能走)
+  function isSafePos(r, c) {
+    if (tileAt(c, r) !== TILE.EMPTY) return false;
+    // 至少上下左右有一个方向也是空地
+    return tileAt(c, r - 1) === TILE.EMPTY || tileAt(c, r + 1) === TILE.EMPTY ||
+           tileAt(c - 1, r) === TILE.EMPTY || tileAt(c + 1, r) === TILE.EMPTY;
+  }
+  // 从首选位置螺旋向外搜索
+  if (preferRow != null && preferCol != null && isSafePos(preferRow, preferCol)) {
+    return { row: preferRow, col: preferCol };
+  }
+  for (let radius = 1; radius < Math.max(COLS, ROWS); radius++) {
+    for (let dr = -radius; dr <= radius; dr++) {
+      for (let dc = -radius; dc <= radius; dc++) {
+        if (Math.abs(dr) !== radius && Math.abs(dc) !== radius) continue;
+        const r = (preferRow != null ? preferRow : ROWS / 2) + dr;
+        const c = (preferCol != null ? preferCol : COLS / 2) + dc;
+        if (r >= 1 && r < ROWS - 1 && c >= 1 && c < COLS - 1 && isSafePos(r, c)) {
+          return { row: r, col: c };
+        }
+      }
+    }
+  }
+  // 最终兜底: 暴力扫描
+  for (let r = 1; r < ROWS - 1; r++) {
+    for (let c = 1; c < COLS - 1; c++) {
+      if (isSafePos(r, c)) return { row: r, col: c };
+    }
+  }
+  return { row: Math.floor(ROWS / 2), col: Math.floor(COLS / 2) };
 }
 
 // ── 生成敌人 ──
 function spawnEnemy() {
-  const spawnPoints = [
-    [0, 0], [COLS - 1, 0], [0, ROWS - 1], [COLS - 1, ROWS - 1],
-    [COLS / 2, 0], [0, ROWS / 2], [COLS - 1, ROWS / 2], [COLS / 2, ROWS - 1],
+  const spawnCols = [0, COLS - 1, Math.floor(COLS / 2)];
+  const spawnRows = [0, ROWS - 1, Math.floor(ROWS / 2)];
+  // 尝试从边缘生成点附近找空位
+  const tries = [
+    [spawnRows[0], spawnCols[0]], [spawnRows[0], spawnCols[1]],
+    [spawnRows[1], spawnCols[0]], [spawnRows[1], spawnCols[1]],
+    [spawnRows[0], spawnCols[2]], [spawnRows[1], spawnCols[2]],
+    [spawnRows[2], spawnCols[0]], [spawnRows[2], spawnCols[1]],
   ];
-  const sp = spawnPoints[Math.floor(Math.random() * spawnPoints.length)];
-  const x = sp[0] * TILE_SIZE + TILE_SIZE / 2;
-  const y = sp[1] * TILE_SIZE + TILE_SIZE / 2;
+  const tr = tries[Math.floor(Math.random() * tries.length)];
+  const pos = findEmptySpawn(tr[0], tr[1]);
+  const x = pos.col * TILE_SIZE + TILE_SIZE / 2;
+  const y = pos.row * TILE_SIZE + TILE_SIZE / 2;
   const colors = ['#e53935', '#ff7043', '#ab47bc', '#42a5f5', '#ef5350', '#f44336', '#ff5722'];
   const color = colors[Math.floor(Math.random() * colors.length)];
   const dir = Math.floor(Math.random() * 4);
@@ -740,7 +795,8 @@ function loadLevel(lvl) {
       }
     }
   }
-  player = new Tank(WIDTH / 2, HEIGHT - TILE_SIZE * 1.5, 0, '#4CAF50', true);
+  const playerPos = findEmptySpawn(ROWS - 2, Math.floor(COLS / 2));
+  player = new Tank(playerPos.col * TILE_SIZE + TILE_SIZE / 2, playerPos.row * TILE_SIZE + TILE_SIZE / 2, 0, '#4CAF50', true);
   enemies = [];
   bullets = [];
   particles = [];
@@ -898,8 +954,9 @@ function playerDie() {
   player.alive = false;
   setTimeout(() => {
     if (gameState !== 'playing') return;
-    player.x = WIDTH / 2;
-    player.y = HEIGHT - TILE_SIZE * 1.5;
+    const respawnPos = findEmptySpawn(ROWS - 2, Math.floor(COLS / 2));
+    player.x = respawnPos.col * TILE_SIZE + TILE_SIZE / 2;
+    player.y = respawnPos.row * TILE_SIZE + TILE_SIZE / 2;
     player.dir = 0;
     player.alive = true;
     player.shield = 120;
