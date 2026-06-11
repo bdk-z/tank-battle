@@ -63,4 +63,4 @@ tank-battle/
 
 ---
 
-🤖 由 Claude Code 生成
+
