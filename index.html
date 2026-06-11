@@ -370,8 +370,8 @@ class Tank {
     this.reloadTime = isPlayer ? 20 : 40 + Math.random() * 40;
     this.reload = isPlayer ? 0 : 60 + Math.random() * 80;  // 敌人出生冷却长，不会立刻开枪
     this.alive = true;
-    this.shield = isPlayer ? 180 : 0;
-    this.shieldActive = isPlayer;  // 玩家开局有无敌护盾
+    this.shield = isPlayer ? 360 : 0;  // 玩家开局6秒无敌
+    this.shieldActive = isPlayer;
     this.multiShot = false;
     this.speedBoost = 0;
     this.flashTimer = 0;
@@ -845,7 +845,7 @@ function updateUI() {
   livesEl.textContent = lives;
   levelDisplayEl.textContent = level;
   // 剩余敌人 = 待生成 + 存活
-  remainingEl.textContent = spawnQueue.length + enemies.filter(e => e.alive).length;
+  if (remainingEl) remainingEl.textContent = spawnQueue.length + enemies.filter(e => e.alive).length;
 }
 
 // ── 游戏重置 ──
@@ -860,10 +860,15 @@ function resetGame() {
 // ── 主循环 ──
 function gameLoop() {
   frameCount++;
-  if (gameState === 'playing') {
-    update();
+  try {
+    if (gameState === 'playing') {
+      update();
+    }
+    render();
+  } catch (e) {
+    console.error('Game loop error:', e);
+    // 防止循环崩溃，继续运行
   }
-  render();
   requestAnimationFrame(gameLoop);
 }
 
@@ -985,35 +990,41 @@ function update() {
 function playerDie() {
   lives--;
   updateUI();
+  // 清除所有敌方子弹，防止复合击杀
+  bullets = bullets.filter(b => b.isPlayer);
   if (lives <= 0) {
     gameOver();
     return;
   }
-  // 重生
+  // 重生 (带强保护)
   player.alive = false;
   setTimeout(() => {
     if (gameState !== 'playing') return;
+    // 再次清场：清除附近所有敌人子弹
+    bullets = bullets.filter(b => b.isPlayer);
     const respawnPos = findEmptySpawn(ROWS - 2, Math.floor(COLS / 2));
     player.x = respawnPos.col * TILE_SIZE + TILE_SIZE / 2;
     player.y = respawnPos.row * TILE_SIZE + TILE_SIZE / 2;
     player.dir = 0;
     player.alive = true;
-    player.shield = 120;
+    player.shield = 180;         // 复活后3秒无敌
     player.shieldActive = true;
     player.reload = 0;
-    // 清除重生点附近敌人，防止秒死
+    // 清除重生点附近敌人和子弹，防止秒死
     for (const e of enemies) {
       if (!e.alive) continue;
       const edx = player.x - e.x;
       const edy = player.y - e.y;
-      if (Math.abs(edx) < TILE_SIZE * 3 && Math.abs(edy) < TILE_SIZE * 3) {
+      if (Math.abs(edx) < TILE_SIZE * 4 && Math.abs(edy) < TILE_SIZE * 4) {
         e.alive = false;
-        spawnParticles(e.x, e.y, e.color, 20);
+        spawnParticles(e.x, e.y, e.color, 25);
       }
     }
     enemies = enemies.filter(e => e.alive);
+    // 再次清除敌方子弹
+    bullets = bullets.filter(b => b.isPlayer);
     updateUI();
-  }, 1000);
+  }, 1200);  // 1.2秒重生时间
 }
 
 function levelClear() {
@@ -1111,13 +1122,17 @@ function render() {
   }
 
   // 道具状态指示器
-  let puHTML = '';
-  if (player && player.alive) {
-    if (player.speedBoost > 0) puHTML += `<span style="background:rgba(0,255,255,0.25);color:#0ff;padding:1px 6px;border-radius:3px;font-size:11px;">⚡${Math.ceil(player.speedBoost/60)}s</span>`;
-    if (player.shieldActive) puHTML += `<span style="background:rgba(255,200,0,0.25);color:#fc0;padding:1px 6px;border-radius:3px;font-size:11px;">🛡${Math.ceil(player.shield/60)}s</span>`;
-    if (player.multiShot) puHTML += `<span style="background:rgba(255,0,255,0.25);color:#f0f;padding:1px 6px;border-radius:3px;font-size:11px;">💥</span>`;
+  if (powerupIndicator) {
+    if (player && player.alive) {
+      let html = '';
+      if (player.speedBoost > 0) html += `<span style="background:rgba(0,255,255,0.25);color:#0ff;padding:1px 6px;border-radius:3px;font-size:11px;">⚡${Math.ceil(player.speedBoost/60)}s</span>`;
+      if (player.shieldActive) html += `<span style="background:rgba(255,200,0,0.25);color:#fc0;padding:1px 6px;border-radius:3px;font-size:11px;">🛡${Math.ceil(player.shield/60)}s</span>`;
+      if (player.multiShot) html += `<span style="background:rgba(255,0,255,0.25);color:#f0f;padding:1px 6px;border-radius:3px;font-size:11px;">💥</span>`;
+      powerupIndicator.innerHTML = html;
+    } else {
+      powerupIndicator.innerHTML = '';
+    }
   }
-  powerupIndicator.innerHTML = puHTML;
 
   // 道具
   for (const p of powerUps) {
