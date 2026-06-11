@@ -157,8 +157,6 @@ let map      = [];
 let spawnQ   = []; // 待生成敌人队列
 let spawnCd  = 0;
 let lvTrans  = 0;
-let shakeA   = 0;
-let shakeD   = 0;
 let keys     = {};
 let frame    = 0;
 
@@ -192,7 +190,7 @@ function tr(y) { return Math.floor(y/TS); }
 
 // ──── 粒子 ────
 function addFx(x,y,color,n) {
-  n = n || 12;
+  n = n || 5;
   for (let i=0;i<n;i++) {
     const a = Math.random()*Math.PI*2;
     const s = 1+Math.random()*4;
@@ -377,9 +375,7 @@ class Bullet {
   draw(ctx){
     if(!this.alive) return;
     ctx.fillStyle=this.playerOwned?'#ffeb3b':'#ff5252';
-    ctx.shadowColor=this.playerOwned?'#ffeb3b':'#ff5252'; ctx.shadowBlur=3;
     ctx.beginPath(); ctx.arc(this.x,this.y,this.size,0,Math.PI*2); ctx.fill();
-    ctx.shadowBlur=0;
   }
 }
 
@@ -584,14 +580,12 @@ function update() {
         if (b.hitTank(e)) {
           b.alive = false;
           if (e.shielding) {
-            e.shield=0; e.shielding=false; addFx(e.x,e.y,'#fc0',20); sfx(300,0.15,'triangle',0.06);
+            e.shield=0; e.shielding=false; addFx(e.x,e.y,'#fc0',5); sfx(300,0.15,'triangle',0.06);
           } else {
             e.alive = false;
-            addFx(e.x,e.y,e.color,25); sfx(150,0.2,'sawtooth',0.08);
+            addFx(e.x,e.y,e.color,8); sfx(150,0.2,'sawtooth',0.08);
             const pts=100*level; score+=pts;
             killPops.push({x:e.x,y:e.y-10,text:'+'+pts,life:45,max:45,color:'#ffeb3b'});
-            // 轻微震动，不影响视线
-            shakeA=1; shakeD=4;
             if(Math.random()<0.2) addPickup(tc(e.x),tr(e.y));
           }
           updateHUD();
@@ -605,10 +599,9 @@ function update() {
         if (player.shielding) {
           player.shield-=50;
           if(player.shield<=0) player.shielding=false;
-          addFx(player.x,player.y,'#fc0',15); sfx(300,0.15,'triangle',0.06);
+          addFx(player.x,player.y,'#fc0',5); sfx(300,0.15,'triangle',0.06);
         } else {
-          addFx(player.x,player.y,'#4CAF50',30); sfx(80,0.4,'sawtooth',0.12);
-          shakeA=3; shakeD=10;
+          addFx(player.x,player.y,'#4CAF50',8); sfx(80,0.4,'sawtooth',0.12);
           playerDie();
         }
       }
@@ -626,8 +619,6 @@ function update() {
   for (const p of fx) { p.x+=p.vx; p.y+=p.vy; p.life--; }
   for (const p of pickups) p.life--;
   for (const p of killPops) { p.y-=0.8; p.life--; }
-
-  if (shakeD>0) shakeD--;
 
   // 胜利?
   if (spawnQ.length===0 && enemies.length===0) winLevel();
@@ -652,7 +643,7 @@ function playerDie() {
     for(const e of enemies){
       if(!e.alive) continue;
       if(Math.abs(player.x-e.x)<TS*4&&Math.abs(player.y-e.y)<TS*4){
-        e.alive=false; addFx(e.x,e.y,e.color,25);
+        e.alive=false; addFx(e.x,e.y,e.color,8);
       }
     }
     enemies=enemies.filter(e=>e.alive);
@@ -683,11 +674,6 @@ function gameOver() {
 // ──── 渲染 ────
 function render() {
   ctx.clearRect(0,0,W,H);
-  // 震动偏移
-  let sx=0,sy=0;
-  if(shakeD>0){sx=(Math.random()-0.5)*shakeA;sy=(Math.random()-0.5)*shakeA;}
-  ctx.save(); ctx.translate(sx,sy);
-
   // 背景
   ctx.fillStyle='#16213e'; ctx.fillRect(0,0,W,H);
   ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1;
@@ -757,8 +743,6 @@ function render() {
     ctx.fillText(p.text,p.x,p.y);ctx.shadowBlur=0;
     ctx.restore();
   }
-
-  ctx.restore();
 
   // 关卡过渡
   if(state==='leveling'){
