@@ -377,7 +377,7 @@ class Bullet {
   draw(ctx){
     if(!this.alive) return;
     ctx.fillStyle=this.playerOwned?'#ffeb3b':'#ff5252';
-    ctx.shadowColor=this.playerOwned?'#ffeb3b':'#ff5252'; ctx.shadowBlur=6;
+    ctx.shadowColor=this.playerOwned?'#ffeb3b':'#ff5252'; ctx.shadowBlur=3;
     ctx.beginPath(); ctx.arc(this.x,this.y,this.size,0,Math.PI*2); ctx.fill();
     ctx.shadowBlur=0;
   }
@@ -562,7 +562,7 @@ function update() {
   // 敌人AI + 随机射击
   for (const e of enemies) {
     aiUpdate(e); e.update();
-    if (Math.random()<0.008*(1+level*0.3)) {
+    if (Math.random()<0.003*(1+level*0.3)) {
       const bs=e.shoot(); if(bs) for(const b of bs) bullets.push(b);
     }
   }
@@ -590,7 +590,8 @@ function update() {
             addFx(e.x,e.y,e.color,25); sfx(150,0.2,'sawtooth',0.08);
             const pts=100*level; score+=pts;
             killPops.push({x:e.x,y:e.y-10,text:'+'+pts,life:45,max:45,color:'#ffeb3b'});
-            shakeA=4; shakeD=8;
+            // 轻微震动，不影响视线
+            shakeA=1; shakeD=4;
             if(Math.random()<0.2) addPickup(tc(e.x),tr(e.y));
           }
           updateHUD();
@@ -607,7 +608,7 @@ function update() {
           addFx(player.x,player.y,'#fc0',15); sfx(300,0.15,'triangle',0.06);
         } else {
           addFx(player.x,player.y,'#4CAF50',30); sfx(80,0.4,'sawtooth',0.12);
-          shakeA=8; shakeD=15;
+          shakeA=3; shakeD=10;
           playerDie();
         }
       }
