@@ -378,19 +378,37 @@ class Tank {
     };
   }
 
-  collidesWithMap(nx, ny) {
+  collidesWithMap(nx, ny, dx, dy) {
     const b = {
       left: nx - this.size + 4,
       right: nx + this.size - 4,
       top: ny - this.size + 4,
       bottom: ny + this.size - 4,
     };
-    const cols = [pxToCol(b.left), pxToCol(b.right), pxToCol(b.left), pxToCol(b.right)];
-    const rows = [pxToRow(b.top), pxToRow(b.top), pxToRow(b.bottom), pxToRow(b.bottom)];
-    for (let i = 0; i < 4; i++) {
-      const t = tileAt(cols[i], rows[i]);
-      if (t === TILE.BRICK || t === TILE.STEEL || t === TILE.WATER || t === TILE.BASE_BRICK) {
-        return true;
+    const solid = (t) => t === TILE.BRICK || t === TILE.STEEL || t === TILE.WATER || t === TILE.BASE_BRICK;
+    // 方向感知碰撞: 只检查移动方向的前沿，允许沿墙滑动
+    if (dx > 0) { // 向右移动，只检查右边
+      const col = pxToCol(b.right);
+      for (let r = pxToRow(b.top); r <= pxToRow(b.bottom); r++) {
+        if (solid(tileAt(col, r))) return true;
+      }
+    }
+    if (dx < 0) { // 向左移动，只检查左边
+      const col = pxToCol(b.left);
+      for (let r = pxToRow(b.top); r <= pxToRow(b.bottom); r++) {
+        if (solid(tileAt(col, r))) return true;
+      }
+    }
+    if (dy > 0) { // 向下移动，只检查底边
+      const row = pxToRow(b.bottom);
+      for (let c = pxToCol(b.left); c <= pxToCol(b.right); c++) {
+        if (solid(tileAt(c, row))) return true;
+      }
+    }
+    if (dy < 0) { // 向上移动，只检查顶边
+      const row = pxToRow(b.top);
+      for (let c = pxToCol(b.left); c <= pxToCol(b.right); c++) {
+        if (solid(tileAt(c, row))) return true;
       }
     }
     return false;
@@ -410,8 +428,8 @@ class Tank {
     if (nx - this.size < 0 || nx + this.size > WIDTH || ny - this.size < 0 || ny + this.size > HEIGHT) {
       return false;
     }
-    // 地图碰撞
-    if (this.collidesWithMap(nx, ny)) return false;
+    // 地图碰撞 (方向感知，只检查移动前沿)
+    if (this.collidesWithMap(nx, ny, dx, dy)) return false;
     // 其他坦克碰撞 (包括敌人之间)
     const allTanks = this.isPlayer ? enemies : [player, ...enemies.filter(e => e !== this && e.alive)];
     for (const t of allTanks) {
